@@ -200,7 +200,7 @@ def export_theme(*, savedir=None, quiet=False):
     )
     os.mkdir(workdir)
     os.mkdir(workdir / "stereo")
-    index_theme = configparser.ConfigParser()
+    index_theme = configparser.ConfigParser(interpolation=None)
     index_theme.optionxform = str
     index_theme["Sound Theme"] = {
         "Name": the_theme.name,
@@ -228,8 +228,13 @@ def install_theme():
     py_kdialog.title = "Install theme"
     if the_theme.modified:
         py_kdialog.msgbox("To install your theme, you must save it first.")
+        return
     savedir = (
-        home / ".local" / "share" / "sounds" / the_theme.name.lower().replace(" ", "")
+        home
+        / ".local"
+        / "share"
+        / "sounds"
+        / "".join(e for e in the_theme.name if e.isalnum()).lower()
     )
     savedir.mkdir(parents=True, exist_ok=True)
     export_theme(savedir=str(savedir), quiet=True)
