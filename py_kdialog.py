@@ -21,6 +21,92 @@ class UnexpectedNonZeroError(subprocess.CalledProcessError, KDialogError):
     pass
 
 
+class CancelledError(KDialogError):
+    pass
+
+
+class ProgressBar:
+    def __init__(self, ref: str, count: int, auto_close=False):
+        self.__ref = ref
+        self.__itercount = count
+        self.__progress = 0
+        self.__closed = False
+        self.__qdbus = None
+        self.__auto_close = auto_close
+        qdbus_choices = ["qdbus6", "qdbus", "qdbus-qt5"]
+        for executable in qdbus_choices:
+            try:
+                subprocess.run([executable] + self.__ref.split(), check=True)
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                continue
+            else:
+                self.__qdbus = executable
+                break
+        else:  # no break
+            raise RuntimeError(
+                f"Either qdbus is missing, or the specified dbus reference \
+does not exist. Please instantiate this class using the {__name__}\
+.progressbar() method."
+            )
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if not self.__closed:
+            self.close()
+
+    def close(self):
+        self.__closed = True
+        subprocess.run([self.__qdbus] + self.__ref.split() + ["close"])
+
+    @property
+    def closed(self):
+        return self.__closed
+
+    @property
+    def progress(self):
+        return self.__progress
+
+    @progress.setter
+    def progress(self, value: int):
+        if not isinstance(value, int):
+            raise TypeError("progress must be an integer")
+        if value < 0 or value > self.__itercount:
+            raise ValueError(
+                f"progress must be at least 0 and at most {self.__itercount}."
+            )
+        self.__progress = value
+        self.update()
+
+    @property
+    def itercount(self):
+        return self.__itercount
+
+    def increment(self):
+        if self.__closed:
+            raise ValueError("Attempted to update a closed progress bar")
+        self.__progress += 1
+        self.update()
+        if self.__progress >= self.__itercount and self.__auto_close:
+            self.close()
+
+    def update(self):
+        if self.__closed:
+            raise ValueError("Attempted to update a closed progress bar")
+        call_args = self.__ref.split() + ["Set", "", "value", str(self.__progress)]
+        if self.__qdbus is None:
+            raise RuntimeError(
+                "qdbus executable is not set for some reason. \
+It should have been set when this class was instantiated."
+            )
+        try:
+            subprocess.run([self.__qdbus] + call_args, check=True)
+        except subprocess.CalledProcessError as e:
+            self.close()
+            raise CancelledError("Progress bar was cancelled.") from e
+
+
 icon = None
 title = "KDialog"
 _log = logging.getLogger(__name__)
@@ -680,3 +766,19 @@ def slider(
     if returncode == 0:
         return int(response)
     return None
+
+
+def progressbar(
+    label: str, count: int, auto_close=False, *, cancel_label=None
+) -> ProgressBar:
+    call_args = []
+
+    if cancel_label is not None:
+        call_args.append("--cancel-label")
+        call_args.append(cancel_label)
+
+    call_args += ["--progressbar", label, str(count)]
+    returncode, ref = do_call(*call_args)
+    if returncode != 0:
+        raise UnexpectedNonZeroError(f"Bad return code: {returncode}")
+    return ProgressBar(ref, count, auto_close)

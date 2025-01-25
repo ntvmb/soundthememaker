@@ -8,6 +8,7 @@ import random
 import string
 import py_kdialog
 from typing import List, Iterable, Any
+from pydub import AudioSegment
 
 IMPORT_SOUND = "Import sound... "
 UNSET_SOUND = "Unset sound... "
@@ -135,8 +136,14 @@ def edit_sound(sound):
         )
         if the_sound is not None:
             the_sound = the_sound[0]
-        the_theme.imported_sounds.append(the_sound)
-        os.chdir(pathlib.Path(the_sound).parent)
+            the_theme.imported_sounds.append(the_sound)
+            os.chdir(pathlib.Path(the_sound).parent)
+            if AudioSegment.from_file(the_sound).channels != 2:
+                py_kdialog.msgbox(
+                    "The sound you imported is not in stereo. While it will be \
+converted automatically when the theme is exported, it is recommended to use \
+stereo sounds for optimal quality."
+                )
     if the_sound is not None:
         if the_sound != UNSET_SOUND:
             the_theme.sounds[sound] = the_sound
@@ -211,15 +218,34 @@ def export_theme(*, savedir=None, quiet=False):
     index_theme["stereo"] = {"OutputProfile": "stereo"}
     with (workdir / "index.theme").open("w") as fp:
         index_theme.write(fp, space_around_delimiters=False)
-    for sound_name, sound_path in the_theme.sounds.items():
-        if sound_path is not None:
-            write_to = (
-                workdir / "stereo" / f"{sound_name}{pathlib.Path(sound_path).suffix}"
-            )
-            shutil.copy(sound_path, str(write_to))
-    shutil.copytree(workdir, savedir, dirs_exist_ok=True)
+    with py_kdialog.progressbar(
+        "Exporting...",
+        len([s for s in the_theme.sounds.values() if s is not None]),
+        False,
+    ) as progress:
+        for sound_name, sound_path in the_theme.sounds.items():
+            if sound_path is not None:
+                write_to = workdir / "stereo" / f"{sound_name}.ogg"
+                sound = AudioSegment.from_file(sound_path)
+                if pathlib.Path(sound_path).suffix != "ogg" or sound.channels != 2:
+                    sound.export(
+                        str(write_to),
+                        format="ogg",
+                        codec="libvorbis",
+                        parameters=["-ac", "2"],
+                    )
+                else:
+                    shutil.copy(sound_path, str(write_to))
+                try:
+                    progress.increment()
+                except py_kdialog.CancelledError:
+                    cancelled = True
+                    break
+        else:  # no break
+            cancelled = False
+            shutil.copytree(workdir, savedir, dirs_exist_ok=True)
     shutil.rmtree(workdir)
-    if not quiet:
+    if not (quiet or cancelled):
         py_kdialog.msgbox("Theme export success!")
 
 
