@@ -227,7 +227,7 @@ def export_theme(*, savedir=None, quiet=False):
             if sound_path is not None:
                 write_to = workdir / "stereo" / f"{sound_name}.ogg"
                 sound = AudioSegment.from_file(sound_path)
-                if pathlib.Path(sound_path).suffix != "ogg" or sound.channels != 2:
+                if pathlib.Path(sound_path).suffix != ".ogg" or sound.channels != 2:
                     sound.export(
                         str(write_to),
                         format="ogg",
